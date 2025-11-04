@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Servo Angles - Slider</title>
+  <style>
+    body{font-family:Arial;max-width:900px;margin:18px auto;padding:0 12px;}
+    .row{display:flex;align-items:center;margin:10px 0;gap:12px;}
+    label{width:90px;}
+    input[type=range]{flex:1;}
+    span.value{min-width:36px;display:inline-block;text-align:right;}
+    .controls{margin:14px 0;}
+    button{padding:8px 12px;margin-right:8px;}
+    table{width:100%;border-collapse:collapse;margin-top:18px;}
+    th,td{border:1px solid #ddd;padding:8px;text-align:center;}
+    thead{background:#f4f4f4;}
+  </style>
+</head>
+<body>
+  <h2>Servo Controller — 4 sliders (0°–180°)</h2>
+
+  <div id="sliders">
+    <div class="row">
+      <label>Servo 1</label>
+      <input id="s1" type="range" min="0" max="180" value="90" oninput="updateLabel(1)">
+      <span class="value" id="v1">90</span>°
+    </div>
+    <div class="row">
+      <label>Servo 2</label>
+      <input id="s2" type="range" min="0" max="180" value="90" oninput="updateLabel(2)">
+      <span class="value" id="v2">90</span>°
+    </div>
+    <div class="row">
+      <label>Servo 3</label>
+      <input id="s3" type="range" min="0" max="180" value="90" oninput="updateLabel(3)">
+      <span class="value" id="v3">90</span>°
+    </div>
+    <div class="row">
+      <label>Servo 4</label>
+      <input id="s4" type="range" min="0" max="180" value="90" oninput="updateLabel(4)">
+      <span class="value" id="v4">90</span>°
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="resetBtn">Reset to 90°</button>
+    <button id="saveBtn">Save to DB</button>
+    <button id="espBtn">Submit to ESP</button>
+    <button id="refreshList">Refresh Saved List</button>
+  </div>
+
+  <h3>Saved Positions</h3>
+  <table id="savedTable">
+    <thead>
+      <tr>
+        <th>ID</th><th>S1</th><th>S2</th><th>S3</th><th>S4</th><th>Time</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+  function getAngles(){
+    return {
+      s1: Number(document.getElementById('s1').value),
+      s2: Number(document.getElementById('s2').value),
+      s3: Number(document.getElementById('s3').value),
+      s4: Number(document.getElementById('s4').value)
+    };
+  }
+
+  function updateLabel(i){
+    document.getElementById('v'+i).innerText = document.getElementById('s'+i).value;
+  }
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    ['s1','s2','s3','s4'].forEach(id=> {
+      document.getElementById(id).value = 90;
+      updateLabel(id.slice(1));
+    });
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const data = getAngles();
+    const res = await fetch('api_save.php', {
+      method: 'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const j = await res.json();
+    if(j.success) { alert('Saved.'); loadList(); } else alert('Error saving');
+  });
+
+  document.getElementById('espBtn').addEventListener('click', async ()=>{
+    const data = getAngles();
+    // submit to ESP endpoint (server-side will save to last_submit then you can have ESP poll angles.php)
+    const res = await fetch('api_esp_submit.php', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const j = await res.json();
+    if(j.success) alert('Submitted to ESP endpoint (and saved as last).');
+    else alert('Error submitting.');
+  });
+
+  async function loadList(){
+    const res = await fetch('api_list.php');
+    const list = await res.json();
+    const tbody = document.querySelector('#savedTable tbody');
+    tbody.innerHTML = '';
+    list.forEach(row=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${row.id}</td>
+        <td>${row.servo1}</td><td>${row.servo2}</td><td>${row.servo3}</td><td>${row.servo4}</td>
+        <td>${row.created_at}</td>
+        <td>
+          <button onclick="loadToSliders(${row.id})">Load</button>
+          <button onclick="deleteRow(${row.id})">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadToSliders(id){
+    const res = await fetch('api_get.php?id='+encodeURIComponent(id));
+    const row = await res.json();
+    if(row && row.id){
+      document.getElementById('s1').value = row.servo1; updateLabel(1);
+      document.getElementById('s2').value = row.servo2; updateLabel(2);
+      document.getElementById('s3').value = row.servo3; updateLabel(3);
+      document.getElementById('s4').value = row.servo4; updateLabel(4);
+    } else alert('Could not load row.');
+  }
+
+  async function deleteRow(id){
+    if(!confirm('Delete saved position #' + id + '?')) return;
+    const res = await fetch('api_delete.php?id='+encodeURIComponent(id), { method:'GET' });
+    const j = await res.json();
+    if(j.success) loadList(); else alert('Delete failed');
+  }
+
+  document.getElementById('refreshList').addEventListener('click', loadList);
+
+  // initial load
+  loadList();
+</script>
+</body>
+</html>
